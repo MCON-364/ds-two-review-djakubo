@@ -4,6 +4,9 @@ import edu.touro.mcon364.finalreview.model.LogLevel;
 import edu.touro.mcon364.finalreview.model.LogMessage;
 
 import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * LogProcessor.
@@ -50,7 +53,11 @@ import java.util.Map;
  *   the processor's internal state?
  */
 public class LogProcessor {
-
+    private AtomicInteger totalProcessed = new AtomicInteger();
+    private LinkedBlockingQueue<LogMessage> messages = new LinkedBlockingQueue<>();
+    private Map<LogLevel, AtomicInteger> countsBylevel = new ConcurrentHashMap<>();
+    private ExecutorService pool;
+    private boolean running = false;
     /*
      * Decide what fields this class needs.
      *
@@ -67,6 +74,9 @@ public class LogProcessor {
      */
     public void submit(LogMessage message) {
         // TODO: implement
+        if(running){
+            messages.offer(message);
+        }
     }
 
     /**
@@ -74,6 +84,13 @@ public class LogProcessor {
      */
     public void start(int workerCount) {
         // TODO: implement
+        if(workerCount<=0){throw new IllegalArgumentException("Count must be positive");}
+        pool = Executors.newFixedThreadPool(workerCount);
+        running = true;
+        for(int i = 0; i< workerCount; i++){
+            pool.submit(this::workerLoop);
+        }
+
     }
 
     /**
@@ -82,8 +99,15 @@ public class LogProcessor {
      * You may keep this helper method, rename it, or replace it with another
      * private helper if your design is clearer that way.
      */
-    private void workerLoop() {
+    private void workerLoop(){
         // TODO: implement
+        try{
+            while(true){
+                process(messages.take());
+            }
+        } catch(InterruptedException e){
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -91,6 +115,9 @@ public class LogProcessor {
      */
     private void process(LogMessage message) {
         // TODO: implement
+        totalProcessed.incrementAndGet();
+        countsBylevel.computeIfAbsent(message.level(), level -> new AtomicInteger(0))
+                .incrementAndGet();
     }
 
     /**
@@ -98,6 +125,13 @@ public class LogProcessor {
      */
     public void stop() throws InterruptedException {
         // TODO: implement
+        if(pool==null){
+            return;
+        }
+        if(!pool.awaitTermination(10, TimeUnit.SECONDS)){
+            running = false;
+            pool.shutdownNow();
+        }
     }
 
     /**
@@ -105,7 +139,7 @@ public class LogProcessor {
      */
     public int getTotalProcessed() {
         // TODO: implement
-        return 0;
+        return totalProcessed.get();
     }
 
     /**
@@ -113,6 +147,7 @@ public class LogProcessor {
      */
     public Map<LogLevel, Integer> getCountsByLevel() {
         // TODO: implement
-        return Map.of();
+        return countsBylevel.entrySet().stream().collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e-> e.getValue().get()));
     }
 }

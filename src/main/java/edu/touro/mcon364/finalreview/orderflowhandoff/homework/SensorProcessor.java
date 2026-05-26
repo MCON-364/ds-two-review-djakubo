@@ -1,8 +1,13 @@
 package edu.touro.mcon364.finalreview.orderflowhandoff.homework;
 
+import edu.touro.mcon364.finalreview.model.LogLevel;
+import edu.touro.mcon364.finalreview.model.LogMessage;
 import edu.touro.mcon364.finalreview.model.SensorReading;
 
 import java.util.DoubleSummaryStatistics;
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Homework 2 — Sensor reading processor.
@@ -42,7 +47,11 @@ import java.util.DoubleSummaryStatistics;
  * - If several workers update the same stats, how will those updates stay correct?
  */
 public class SensorProcessor {
-
+    private LinkedBlockingQueue<SensorReading> readings = new LinkedBlockingQueue<>();
+    private LinkedBlockingQueue<SensorReading> processedReadings = new LinkedBlockingQueue<>();
+    private ExecutorService pool;
+    private boolean running = false;
+    private AtomicInteger totalProcessed = new AtomicInteger();
     /**
      * Accept one sensor reading for processing.
      *
@@ -50,6 +59,9 @@ public class SensorProcessor {
      */
     public void submit(SensorReading reading) {
         // TODO: decide where submitted readings should be stored
+        if (running){
+            readings.offer(reading);
+        }
     }
 
     /**
@@ -61,6 +73,12 @@ public class SensorProcessor {
     public void start(int workerCount) {
         // TODO: validate workerCount
         // TODO: start the requested number of workers
+        if(workerCount<=0){throw new IllegalArgumentException("Worker count must be positive");}
+        pool = Executors.newFixedThreadPool(workerCount);
+        running = true;
+        for(int i = 0; i< workerCount; i++){
+            pool.submit(this::workerLoop);
+        }
     }
 
     /**
@@ -70,8 +88,16 @@ public class SensorProcessor {
      * The worker should repeatedly look for work, process it when available, and
      * eventually exit when the processor is stopping and no work remains.
      */
-    private void workerLoop() {
-        // TODO: implement the worker behavior
+    private void workerLoop(){
+        // TODO: implement
+        try{
+            while(true){
+                processedReadings.offer(readings.take());
+                totalProcessed.getAndIncrement();
+            }
+        } catch(InterruptedException e){
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -82,6 +108,13 @@ public class SensorProcessor {
     public void stop() throws InterruptedException {
         // TODO: signal that work should stop
         // TODO: wait for all workers to finish
+        if(pool==null){
+            return;
+        }
+        if(!pool.awaitTermination(1, TimeUnit.SECONDS)){
+            running = false;
+            pool.shutdownNow();
+        }
     }
 
     /**
@@ -89,7 +122,7 @@ public class SensorProcessor {
      */
     public int getTotalProcessed() {
         // TODO: return the processed count safely
-        return 0;
+        return totalProcessed.get();
     }
 
     /**
@@ -100,6 +133,9 @@ public class SensorProcessor {
      */
     public DoubleSummaryStatistics getStats() {
         // TODO: calculate or return the current statistics safely
-        return new DoubleSummaryStatistics();
+        if(totalProcessed.get()==0){
+            return new DoubleSummaryStatistics();
+        }
+        return processedReadings.stream().mapToDouble(SensorReading::value).summaryStatistics();
     }
 }
